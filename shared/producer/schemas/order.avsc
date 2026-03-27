@@ -1,0 +1,40 @@
+{
+  "type": "record",
+  "name": "Order",
+  "namespace": "com.poc.ecommerce",
+  "fields": [
+    {"name": "order_id", "type": "string"},
+    {"name": "customer_id", "type": "string"},
+    {"name": "customer_name", "type": "string"},
+    {"name": "customer_email", "type": "string"},
+    {
+      "name": "order_status",
+      "type": {
+        "type": "enum",
+        "name": "OrderStatus",
+        "symbols": ["PENDING", "CONFIRMED", "SHIPPED", "DELIVERED", "CANCELLED"]
+      }
+    },
+    {"name": "product_id", "type": "string"},
+    {"name": "product_name", "type": "string"},
+    {"name": "product_category", "type": "string"},
+    {"name": "quantity", "type": "int"},
+    {"name": "unit_price", "type": "double"},
+    {"name": "total_amount", "type": "double"},
+    {
+      "name": "currency",
+      "type": {
+        "type": "enum",
+        "name": "Currency",
+        "symbols": ["USD", "EUR", "BRL"]
+      }
+    },
+    {
+      "name": "order_timestamp",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    },
+    {"name": "shipping_address_city", "type": "string"},
+    {"name": "shipping_address_state", "type": "string"},
+    {"name": "shipping_address_country", "type": "string"}
+  ]
+}

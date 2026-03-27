@@ -1,0 +1,9 @@
+data/
+*.pyc
+__pycache__/
+.venv/
+*.egg-info/
+.env.local
+target/
+dbt_packages/
+logs/

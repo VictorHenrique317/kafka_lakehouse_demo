@@ -1,0 +1,317 @@
+# =============================================================================
+# Architecture 1: Kafka Connect + MinIO landing → PySpark batch → dbt gold
+# =============================================================================
+
+x-spark-common: &spark-common
+  build:
+    context: ../shared/spark
+    dockerfile: Dockerfile
+  environment:
+    SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+    SPARK_RPC_ENCRYPTION_ENABLED: "no"
+    SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+    SPARK_SSL_ENABLED: "no"
+    ARCH_DATA_PATH: /data/arch1
+  volumes:
+    - ../../data/arch1:/data/arch1
+    - ./jobs:/jobs/arch1
+  networks:
+    - lakehouse
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Kafka (KRaft mode -- no Zookeeper)
+  # ---------------------------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: arch1-kafka
+    hostname: kafka
+    mem_limit: 1g
+    environment:
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 24
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qg"
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - lakehouse
+
+  # ---------------------------------------------------------------------------
+  # Schema Registry
+  # ---------------------------------------------------------------------------
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    container_name: arch1-schema-registry
+    hostname: schema-registry
+    mem_limit: 512m
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    networks:
+      - lakehouse
+
+  # ---------------------------------------------------------------------------
+  # MinIO (S3-compatible object storage)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: arch1-minio
+    hostname: minio
+    mem_limit: 512m
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - lakehouse
+
+  # ---------------------------------------------------------------------------
+  # MinIO Init: create the "lakehouse" bucket
+  # ---------------------------------------------------------------------------
+  minio-init:
+    image: minio/mc:latest
+    container_name: arch1-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set myminio http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing myminio/lakehouse &&
+        echo 'Bucket lakehouse created or already exists.' &&
+        exit 0
+      "
+    networks:
+      - lakehouse
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Kafka Connect (with S3 Sink connector)
+  # ---------------------------------------------------------------------------
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:7.6.0
+    container_name: arch1-kafka-connect
+    hostname: kafka-connect
+    mem_limit: 1g
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: arch1-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: _connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      # S3A / MinIO credentials (used internally by connector)
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+    command:
+      - bash
+      - -c
+      - |
+        echo "Installing Confluent S3 Sink connector..."
+        confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.5.4
+        echo "Copying hadoop-thirdparty jars into connector lib..."
+        find /usr/share/java -name "hadoop-thirdparty*.jar" -o -name "hadoop-shaded-guava*.jar" 2>/dev/null | \
+          xargs -I{} cp {} /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/ || true
+        echo "Starting Kafka Connect..."
+        /etc/confluent/docker/run
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 90s
+    networks:
+      - lakehouse
+
+  # ---------------------------------------------------------------------------
+  # Connector Init: submit S3 sink connector configuration
+  # ---------------------------------------------------------------------------
+  connector-init:
+    image: curlimages/curl:8.5.0
+    container_name: arch1-connector-init
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+    volumes:
+      - ./connect/config:/config:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        echo 'Submitting S3 sink connector...' &&
+        curl -v -X POST http://kafka-connect:8083/connectors
+        -H 'Content-Type: application/json'
+        -d @/config/s3-sink.json &&
+        echo 'Connector submitted successfully.'
+    networks:
+      - lakehouse
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Order Event Producer
+  # ---------------------------------------------------------------------------
+  producer:
+    build:
+      context: ../shared/producer
+      dockerfile: Dockerfile
+    container_name: arch1-producer
+    mem_limit: 256m
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_TOPIC: orders.raw
+      PRODUCER_INTERVAL_MS: "100"
+    restart: on-failure
+    networks:
+      - lakehouse
+
+  # ---------------------------------------------------------------------------
+  # Spark Master (+ Thrift Server for dbt)
+  # ---------------------------------------------------------------------------
+  spark-master:
+    <<: *spark-common
+    container_name: arch1-spark-master
+    hostname: spark-master
+    mem_limit: 1g
+    environment:
+      SPARK_MODE: master
+      SPARK_MASTER_HOST: spark-master
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+      SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+      SPARK_SSL_ENABLED: "no"
+      START_THRIFT_SERVER: "true"
+      ARCH_DATA_PATH: /data/arch1
+    ports:
+      - "8080:8080"   # Spark UI
+      - "7077:7077"   # Spark master
+      - "10000:10000" # Thrift Server for dbt
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: on-failure
+
+  # ---------------------------------------------------------------------------
+  # Spark Worker
+  # ---------------------------------------------------------------------------
+  spark-worker:
+    <<: *spark-common
+    container_name: arch1-spark-worker
+    hostname: spark-worker
+    mem_limit: 2g
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: 1G
+      SPARK_WORKER_CORES: 2
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+      SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+      SPARK_SSL_ENABLED: "no"
+      START_THRIFT_SERVER: "false"
+      ARCH_DATA_PATH: /data/arch1
+    ports:
+      - "8082:8081"   # Worker UI
+
+  # ---------------------------------------------------------------------------
+  # dbt (gold layer) -- only started explicitly via --profile dbt
+  # ---------------------------------------------------------------------------
+  dbt:
+    build:
+      context: ../shared/dbt_gold
+      dockerfile: Dockerfile
+    container_name: arch1-dbt
+    mem_limit: 512m
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    environment:
+      DBT_SCHEMA: gold
+      ARCH_DATA_PATH: /data/arch1
+    volumes:
+      - ../../data/arch1/gold:/data/arch1/gold
+    networks:
+      - lakehouse
+    profiles:
+      - dbt
+    restart: "no"
+
+volumes:
+  minio-data:
+
+networks:
+  lakehouse:
+    driver: bridge

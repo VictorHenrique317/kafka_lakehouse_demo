@@ -1,0 +1,10 @@
+spark_lakehouse:
+  target: dev
+  outputs:
+    dev:
+      type: spark
+      method: thrift
+      host: spark-master
+      port: 10000
+      schema: "{{ env_var('DBT_SCHEMA', 'gold') }}"
+      threads: 1

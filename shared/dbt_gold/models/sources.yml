@@ -1,0 +1,49 @@
+version: 2
+
+sources:
+  - name: silver
+    schema: silver
+    description: >
+      Silver-layer Delta tables registered in the Spark catalog.
+      The physical location is controlled by ARCH_DATA_PATH on the
+      spark-master container (e.g. /data/arch1/silver or /data/arch2/silver).
+    tables:
+      - name: orders
+        description: >
+          Deduplicated, type-cast order events promoted from the bronze layer.
+          Partitioned by order_date.
+        columns:
+          - name: order_id
+            description: Unique order identifier (UUID).
+          - name: customer_id
+            description: Customer identifier (UUID).
+          - name: customer_name
+            description: Full name of the customer.
+          - name: customer_email
+            description: Email address of the customer.
+          - name: order_status
+            description: "Current order status: PENDING | CONFIRMED | SHIPPED | DELIVERED | CANCELLED"
+          - name: product_id
+            description: Product SKU identifier.
+          - name: product_name
+            description: Human-readable product name.
+          - name: product_category
+            description: Product category (Electronics, Clothing, Books, Home & Garden, Sports).
+          - name: quantity
+            description: Number of units ordered.
+          - name: unit_price
+            description: Price per unit in the order currency.
+          - name: total_amount
+            description: Total order value (quantity * unit_price).
+          - name: currency
+            description: "Currency code: USD | EUR | BRL"
+          - name: order_timestamp
+            description: Timestamp when the order was placed (UTC).
+          - name: order_date
+            description: Calendar date derived from order_timestamp (used as partition key).
+          - name: shipping_address_city
+            description: Destination city.
+          - name: shipping_address_state
+            description: Destination state or province.
+          - name: shipping_address_country
+            description: Destination country.
