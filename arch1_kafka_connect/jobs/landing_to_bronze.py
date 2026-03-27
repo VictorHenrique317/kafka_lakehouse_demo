@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-S3A_INPUT_PATH = "s3a://lakehouse/topics/orders.raw/**/*.parquet"
+S3A_INPUT_PATH = "s3a://lakehouse/topics/orders.raw"
 BRONZE_OUTPUT_PATH = "/data/arch1/bronze/orders"
 BATCH_ID = str(uuid.uuid4())
 
@@ -54,7 +54,7 @@ def create_spark_session() -> SparkSession:
 def read_landing_parquet(spark: SparkSession):
     """Read all Parquet files from the MinIO landing zone."""
     logger.info("Reading Parquet files from: %s", S3A_INPUT_PATH)
-    df = spark.read.parquet(S3A_INPUT_PATH)
+    df = spark.read.option("recursiveFileLookup", "true").parquet(S3A_INPUT_PATH)
     logger.info("Landing schema: %s", df.schema.simpleString())
     logger.info("Landing row count: %d", df.count())
     return df
