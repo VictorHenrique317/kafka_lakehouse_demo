@@ -34,7 +34,6 @@ BRONZE_OUTPUT_PATH = "/data/arch2/bronze/orders"
 CHECKPOINT_PATH = "/data/arch2/bronze/_checkpoint"
 SCHEMA_PATH = os.getenv("AVRO_SCHEMA_PATH", "/schemas/order.avsc")
 MAX_OFFSETS_PER_TRIGGER = 10_000
-TRIGGER_INTERVAL = "60 seconds"
 
 
 def load_avro_schema(path: str) -> str:
@@ -161,15 +160,21 @@ def add_bronze_metadata(df):
 
 
 def write_stream_to_bronze(df):
-    """Start the streaming write to Delta bronze table."""
-    logger.info("Starting streaming write to Bronze Delta table at: %s", BRONZE_OUTPUT_PATH)
+    """
+    Read all unread Kafka offsets (since last checkpoint) and write to Bronze Delta.
+
+    Uses trigger(availableNow=True): processes all currently available data across
+    as many micro-batches as needed, then stops. The checkpoint persists the last
+    committed offset so each run is a CDC-style incremental load.
+    """
+    logger.info("Starting Bronze Delta write (availableNow) at: %s", BRONZE_OUTPUT_PATH)
     return (
         df.writeStream
         .format("delta")
         .outputMode("append")
         .partitionBy("ingestion_date")
         .option("checkpointLocation", CHECKPOINT_PATH)
-        .trigger(processingTime=TRIGGER_INTERVAL)
+        .trigger(availableNow=True)
         .start(BRONZE_OUTPUT_PATH)
     )
 
@@ -179,7 +184,7 @@ def main():
     logger.info("Schema path:     %s", SCHEMA_PATH)
     logger.info("Output path:     %s", BRONZE_OUTPUT_PATH)
     logger.info("Checkpoint path: %s", CHECKPOINT_PATH)
-    logger.info("Trigger:         %s", TRIGGER_INTERVAL)
+    logger.info("Trigger:         availableNow (CDC run-to-completion)")
     logger.info("Max offsets:     %d", MAX_OFFSETS_PER_TRIGGER)
 
     avro_schema_str = load_avro_schema(SCHEMA_PATH)
@@ -193,7 +198,7 @@ def main():
         bronze_df = add_bronze_metadata(parsed_df)
         query = write_stream_to_bronze(bronze_df)
 
-        logger.info("Streaming query started. Awaiting termination...")
+        logger.info("Streaming query started. Processing all available offsets then stopping...")
         query.awaitTermination()
 
     except KeyboardInterrupt:
