@@ -32,6 +32,11 @@ RUN curl -fSL "${MVN}/io/delta/delta-spark_2.12/3.2.0/delta-spark_2.12-3.2.0.jar
     curl -fSL "${MVN}/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar" \
          -o "${SPARK_JARS_DIR}/aws-java-sdk-bundle-1.12.262.jar"
 
+# ---------------------------------------------------------------------------
+# Python dependencies
+# ---------------------------------------------------------------------------
+RUN pip install --no-cache-dir delta-spark==3.2.0
+
 COPY spark-defaults.conf /opt/bitnami/spark/conf/spark-defaults.conf
 
 # Entrypoint script to optionally start Thrift Server on the master node

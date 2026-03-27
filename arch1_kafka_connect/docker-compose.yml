@@ -13,7 +13,7 @@ x-spark-common: &spark-common
     SPARK_SSL_ENABLED: "no"
     ARCH_DATA_PATH: /data/arch1
   volumes:
-    - ../../data/arch1:/data/arch1
+    - ../data/arch1:/data/arch1
     - ./jobs:/jobs/arch1
   networks:
     - lakehouse
@@ -233,6 +233,18 @@ services:
       - lakehouse
 
   # ---------------------------------------------------------------------------
+  # Data dir init: create /data/arch1 owned by the Spark user (UID 1001)
+  # ---------------------------------------------------------------------------
+  data-init:
+    image: busybox:latest
+    container_name: arch1-data-init
+    user: root
+    command: sh -c "mkdir -p /data/arch1 && chown -R 1001:1001 /data/arch1"
+    volumes:
+      - ../data/arch1:/data/arch1
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
   # Spark Master (+ Thrift Server for dbt)
   # ---------------------------------------------------------------------------
   spark-master:
@@ -240,6 +252,9 @@ services:
     container_name: arch1-spark-master
     hostname: spark-master
     mem_limit: 1g
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
     environment:
       SPARK_MODE: master
       SPARK_MASTER_HOST: spark-master
@@ -302,7 +317,7 @@ services:
       DBT_SCHEMA: gold
       ARCH_DATA_PATH: /data/arch1
     volumes:
-      - ../../data/arch1/gold:/data/arch1/gold
+      - ../data/arch1/gold:/data/arch1/gold
     networks:
       - lakehouse
     profiles:

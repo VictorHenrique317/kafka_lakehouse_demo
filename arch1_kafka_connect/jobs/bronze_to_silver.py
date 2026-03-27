@@ -62,10 +62,10 @@ def cast_and_derive(df: DataFrame) -> DataFrame:
     """
     return (
         df
-        # Convert epoch-millisecond long to Spark TimestampType
+        # order_timestamp is already TIMESTAMP (Avro timestamp-millis decoded by S3 Sink)
         .withColumn(
             "order_timestamp",
-            (F.col("order_timestamp") / 1000).cast(TimestampType()),
+            F.col("order_timestamp").cast(TimestampType()),
         )
         # Derive calendar date from the cast timestamp
         .withColumn(
