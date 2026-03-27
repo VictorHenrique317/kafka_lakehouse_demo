@@ -160,7 +160,12 @@ def upsert_to_silver(spark: SparkSession, silver_df: DataFrame) -> None:
       update all columns.
     - If no matching record exists, insert the new row.
     """
-    if DeltaTable.isDeltaTable(spark, SILVER_PATH):
+    existing_has_schema = (
+        DeltaTable.isDeltaTable(spark, SILVER_PATH)
+        and len(spark.read.format("delta").load(SILVER_PATH).columns) > 0
+    )
+
+    if existing_has_schema:
         logger.info("Silver Delta table exists -- performing MERGE upsert.")
         silver_table = DeltaTable.forPath(spark, SILVER_PATH)
 
@@ -179,11 +184,12 @@ def upsert_to_silver(spark: SparkSession, silver_df: DataFrame) -> None:
         )
         logger.info("MERGE complete.")
     else:
-        logger.info("Silver Delta table does not exist -- creating with initial write.")
+        logger.info("Silver Delta table does not exist (or has no schema) -- creating with initial write.")
         (
             silver_df.write
             .format("delta")
             .mode("overwrite")
+            .option("overwriteSchema", "true")
             .partitionBy("order_date")
             .save(SILVER_PATH)
         )

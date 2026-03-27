@@ -128,7 +128,7 @@ docker compose up -d --build
 # 2. Start the streaming bronze job (runs indefinitely)
 docker compose exec spark-master \
     spark-submit --master spark://spark-master:7077 \
-    /jobs/arch2/kafka_to_bronze.py &
+    /jobs/arch2/kafka_to_bronze.py
 
 # 3. After bronze data accumulates, promote to silver
 docker compose exec spark-master \

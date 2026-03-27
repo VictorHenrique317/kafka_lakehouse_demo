@@ -15,4 +15,4 @@ models:
     gold:
       +materialized: table
       +file_format: delta
-      +location_root: /data/arch1/gold
+      +location_root: "{{ env_var('ARCH_DATA_PATH', '/data/arch1') }}/gold"

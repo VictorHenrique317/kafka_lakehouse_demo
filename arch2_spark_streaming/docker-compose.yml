@@ -14,9 +14,9 @@ x-spark-common: &spark-common
     SPARK_SSL_ENABLED: "no"
     ARCH_DATA_PATH: /data/arch2
   volumes:
-    - ../../data/arch2:/data/arch2
+    - ../data/arch2:/data/arch2
     - ./jobs:/jobs/arch2
-    - ../../shared/producer/schemas:/schemas:ro
+    - ../shared/producer/schemas:/schemas:ro
   networks:
     - lakehouse
 
@@ -115,6 +115,9 @@ services:
     container_name: arch2-spark-master
     hostname: spark-master
     mem_limit: 1g
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
     environment:
       SPARK_MODE: master
       SPARK_MASTER_HOST: spark-master
@@ -143,14 +146,14 @@ services:
     <<: *spark-common
     container_name: arch2-spark-worker
     hostname: spark-worker
-    mem_limit: 2g
+    mem_limit: 3g
     depends_on:
       spark-master:
         condition: service_healthy
     environment:
       SPARK_MODE: worker
       SPARK_MASTER_URL: spark://spark-master:7077
-      SPARK_WORKER_MEMORY: 1G
+      SPARK_WORKER_MEMORY: 2G
       SPARK_WORKER_CORES: 2
       SPARK_RPC_AUTHENTICATION_ENABLED: "no"
       SPARK_RPC_ENCRYPTION_ENABLED: "no"
@@ -177,11 +180,23 @@ services:
       DBT_SCHEMA: gold
       ARCH_DATA_PATH: /data/arch2
     volumes:
-      - ../../data/arch2/gold:/data/arch2/gold
+      - ../data/arch2/gold:/data/arch2/gold
     networks:
       - lakehouse
     profiles:
       - dbt
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Data dir init: create /data/arch2 owned by the Spark user (world-writable)
+  # ---------------------------------------------------------------------------
+  data-init:
+    image: busybox:latest
+    container_name: arch2-data-init
+    user: root
+    command: sh -c "mkdir -p /data/arch2/bronze /data/arch2/silver /data/arch2/gold && chmod -R 777 /data"
+    volumes:
+      - ../data:/data
     restart: "no"
 
 networks:
