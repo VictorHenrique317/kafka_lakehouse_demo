@@ -40,7 +40,8 @@ start_thrift_server() {
         --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
         --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
         --conf spark.driver.memory=512m \
-        --conf spark.executor.memory=1g \
+        --conf spark.executor.memory=512m \
+        --conf spark.cores.max=1 \
         --conf spark.sql.shuffle.partitions=4 \
         2>&1 &
 

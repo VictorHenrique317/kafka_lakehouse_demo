@@ -268,14 +268,14 @@ services:
     <<: *spark-common
     container_name: arch1-spark-worker
     hostname: spark-worker
-    mem_limit: 2g
+    mem_limit: 3g
     depends_on:
       spark-master:
         condition: service_healthy
     environment:
       SPARK_MODE: worker
       SPARK_MASTER_URL: spark://spark-master:7077
-      SPARK_WORKER_MEMORY: 1G
+      SPARK_WORKER_MEMORY: 2G
       SPARK_WORKER_CORES: 2
       SPARK_RPC_AUTHENTICATION_ENABLED: "no"
       SPARK_RPC_ENCRYPTION_ENABLED: "no"
