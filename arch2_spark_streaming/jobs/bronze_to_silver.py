@@ -62,16 +62,15 @@ def cast_and_derive(df: DataFrame) -> DataFrame:
     """
     Apply type casts and derive computed columns.
 
-    In arch2, order_timestamp arrives as a long (epoch milliseconds)
-    from the Avro schema definition. Cast to TimestampType and derive
-    the calendar date.
+    order_timestamp is already TIMESTAMP (from_avro decodes Avro
+    timestamp-millis logical type directly). Just derive the calendar date.
     """
     return (
         df
-        # Convert epoch-millisecond long to Spark TimestampType
+        # order_timestamp is already TimestampType — just ensure the cast
         .withColumn(
             "order_timestamp",
-            (F.col("order_timestamp") / 1000).cast(TimestampType()),
+            F.col("order_timestamp").cast(TimestampType()),
         )
         # Derive calendar date used as partition key in Silver
         .withColumn(
