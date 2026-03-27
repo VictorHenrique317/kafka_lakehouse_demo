@@ -239,9 +239,9 @@ services:
     image: busybox:latest
     container_name: arch1-data-init
     user: root
-    command: sh -c "mkdir -p /data/arch1 && chown -R 1001:1001 /data/arch1"
+    command: sh -c "mkdir -p /data/arch1/bronze /data/arch1/silver /data/arch1/gold && chmod -R 777 /data"
     volumes:
-      - ../data/arch1:/data/arch1
+      - ../data:/data
     restart: "no"
 
   # ---------------------------------------------------------------------------
