@@ -169,9 +169,9 @@ services:
       - |
         echo "Installing Confluent S3 Sink connector..."
         confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.5.4
-        echo "Copying hadoop-thirdparty jars into connector lib..."
-        find /usr/share/java -name "hadoop-thirdparty*.jar" -o -name "hadoop-shaded-guava*.jar" 2>/dev/null | \
-          xargs -I{} cp {} /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/ || true
+        echo "Adding missing hadoop-shaded-guava dependency for Hadoop 3.3.6..."
+        curl -fsSL -o /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/hadoop-shaded-guava-1.1.1.jar \
+          https://repo1.maven.org/maven2/org/apache/hadoop/thirdparty/hadoop-shaded-guava/1.1.1/hadoop-shaded-guava-1.1.1.jar
         echo "Starting Kafka Connect..."
         /etc/confluent/docker/run
     ports:
