@@ -57,11 +57,10 @@ start_thrift_server() {
         sleep 3
     done
 
-    echo "[entrypoint] Registering Delta tables in Spark catalog..."
-    /opt/bitnami/spark/bin/spark-sql \
-        --master "spark://$(hostname):7077" \
-        --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
-        --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
+    echo "[entrypoint] Registering Delta tables in Thrift Server catalog..."
+    /opt/bitnami/spark/bin/beeline \
+        -u "jdbc:hive2://localhost:10000" \
+        --silent=true \
         -e "
             CREATE DATABASE IF NOT EXISTS silver;
             CREATE TABLE IF NOT EXISTS silver.orders
